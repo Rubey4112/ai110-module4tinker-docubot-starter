@@ -10,6 +10,27 @@ Core DocuBot class responsible for:
 import os
 import glob
 
+STOP_WORDS = {
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "being", "have", "has", "had", "do", "does", "did", "will", "would",
+    "could", "should", "may", "might", "shall", "can", "need", "dare",
+    "i", "me", "my", "we", "our", "you", "your", "he", "she", "it", "its",
+    "they", "them", "their", "this", "that", "these", "those", "what",
+    "which", "who", "how", "when", "where", "why", "not", "no", "nor",
+    "so", "yet", "both", "either", "neither", "each", "any", "all",
+    "about", "above", "after", "before", "between", "into", "through",
+    "up", "down", "out", "off", "over", "under", "then", "than", "just",
+    "also", "as", "if", "more", "most", "other", "some", "such",
+}
+
+
+def remove_stop_words(query):
+    tokens = query.lower().split()
+    filtered = [t for t in tokens if t.strip(".,!?;:\"'()[]") not in STOP_WORDS]
+    return " ".join(filtered) if filtered else query
+
+
 class DocuBot:
     def __init__(self, docs_folder="docs", llm_client=None):
         """
@@ -64,7 +85,14 @@ class DocuBot:
         ignore punctuation if needed.
         """
         index = {}
-        # TODO: implement simple indexing
+        for filename, text in documents:
+            for token in text.lower().split():
+                token = token.strip(".,!?;:\"'()[]")
+                if token:
+                    if token not in index:
+                        index[token] = []
+                    if filename not in index[token]:
+                        index[token].append(filename)
         return index
 
     # -----------------------------------------------------------
@@ -81,8 +109,12 @@ class DocuBot:
         - Count how many appear in the text
         - Return the count as the score
         """
-        # TODO: implement scoring
-        return 0
+        text_lower = text.lower()
+        score = 0
+        for word in remove_stop_words(query).split():
+            if word in text_lower:
+                score += 1
+        return score
 
     def retrieve(self, query, top_k=3):
         """
@@ -91,9 +123,25 @@ class DocuBot:
 
         Return a list of (filename, text) sorted by score descending.
         """
+        candidates = set()
+        for word in remove_stop_words(query).split():
+            word = word.strip(".,!?;:\"'()[]")
+            if word in self.index:
+                for filename in self.index[word]:
+                    candidates.add(filename)
+
         results = []
-        # TODO: implement retrieval logic
-        return results[:top_k]
+        for filename, text in self.documents:
+            if filename in candidates:
+                paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+                for i in range(len(paragraphs)):
+                    chunk = "\n\n".join(paragraphs[i:i + 5])
+                    score = self.score_document(query, chunk)
+                    if score > 0:
+                        results.append((score, filename, chunk))
+
+        results.sort(reverse=True, key=lambda x: x[0])
+        return [(filename, text) for _, filename, text in results[:top_k]]
 
     # -----------------------------------------------------------
     # Answering Modes
