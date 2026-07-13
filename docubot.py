@@ -23,8 +23,11 @@ class DocuBot:
         # Load documents into memory
         self.documents = self.load_documents()  # List of (filename, text)
 
-        # Build a retrieval index (implemented in Phase 1)
-        self.index = self.build_index(self.documents)
+        # Split each document into sections; these chunks are the unit BM25 scores against
+        self.chunks = self.build_chunks(self.documents)  # List of (filename, section_text)
+
+        # Build a retrieval index over chunks (implemented in Phase 1)
+        self.index = self.build_index(self.chunks)
 
     # -----------------------------------------------------------
     # Document Loading
@@ -46,13 +49,60 @@ class DocuBot:
         return docs
 
     # -----------------------------------------------------------
+    # Chunking
+    # -----------------------------------------------------------
+
+    def heading_level(self, line):
+        """Return the number of leading '#' characters in a heading line, or None if not a heading."""
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            return None
+        return len(stripped) - len(stripped.lstrip("#"))
+
+    def split_into_sections(self, text, max_split_level=2):
+        """
+        Split markdown text into sections, starting a new section at each
+        heading whose level is <= max_split_level (default: '#' and '##').
+        Deeper headings (e.g. '###') stay attached to their parent section.
+        """
+        lines = text.split("\n")
+        sections = []
+        current_lines = []
+
+        for line in lines:
+            level = self.heading_level(line)
+            # start a new section only at top-level headings, and only if we've
+            # already collected content for a previous section
+            if level is not None and level <= max_split_level and current_lines:
+                sections.append("\n".join(current_lines).strip())
+                current_lines = [line]  # begin the new section with its heading line
+            else:
+                current_lines.append(line)
+
+        if current_lines:
+            sections.append("\n".join(current_lines).strip())  # append the final section
+
+        return [s for s in sections if s]  # drop any empty sections
+
+    def build_chunks(self, documents):
+        """
+        Split every document into section-level chunks.
+        Returns a list of (filename, section_text) tuples, the unit BM25 scores against.
+        """
+        chunks = []
+        for filename, text in documents:
+            for section_text in self.split_into_sections(text):
+                chunks.append((filename, section_text))
+        return chunks
+
+    # -----------------------------------------------------------
     # Index Construction (Phase 1)
     # -----------------------------------------------------------
 
     def build_index(self, documents):
         """
         (Phase 1):
-        Build a tiny inverted index mapping lowercase words to the documents
+        Build a tiny inverted index mapping lowercase words to the chunks
         they appear in.
 
         Example structure:
@@ -64,7 +114,7 @@ class DocuBot:
         Keep this simple: split on whitespace, lowercase tokens,
         ignore punctuation if needed.
         """
-        index = {}  # word -> list of filenames that contain it (used as BM25 document frequency)
+        index = {}  # word -> list with one entry per chunk containing it (len() = BM25 document frequency)
         total_length = 0  # running total of word counts, used to compute the corpus average length
 
         for filename, text in documents:
@@ -81,7 +131,7 @@ class DocuBot:
 
             total_length += len(cleaned_words)  # add this document's word count to the running total
 
-        # average document length across the corpus, used by BM25's length-normalization term
+        # average chunk length across the corpus, used by BM25's length-normalization term
         self.avg_doc_length = total_length / len(documents) if documents else 0
 
         return index
@@ -105,9 +155,9 @@ class DocuBot:
         words = [w.strip(".,!?;:()[]\"'") for w in text.lower().split()]
         words = [w for w in words if w]
 
-        doc_length = len(words) or 1  # this document's length in words; avoid dividing by zero below
-        N = len(self.documents)  # total number of documents in the corpus
-        avgdl = self.avg_doc_length or 1  # corpus average document length; avoid dividing by zero
+        doc_length = len(words) or 1  # this chunk's length in words; avoid dividing by zero below
+        N = len(self.chunks)  # total number of chunks in the corpus
+        avgdl = self.avg_doc_length or 1  # corpus average chunk length; avoid dividing by zero
 
         score = 0.0
         for term in query_words:
@@ -129,12 +179,12 @@ class DocuBot:
 
     def retrieve(self, query, top_k=3):
         """
-        Use the index and scoring function to select top_k relevant document snippets.
+        Use the index and scoring function to select top_k relevant section chunks.
 
         Return a list of (filename, text) sorted by score descending.
         """
-        # score every document in the corpus against the query
-        scored = [(self.score_document(query, text), filename, text) for filename, text in self.documents]
+        # score every chunk in the corpus against the query
+        scored = [(self.score_document(query, text), filename, text) for filename, text in self.chunks]
 
         scored.sort(key=lambda item: item[0], reverse=True)  # highest score first
 
