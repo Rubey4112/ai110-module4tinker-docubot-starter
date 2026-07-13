@@ -64,46 +64,84 @@ class DocuBot:
         Keep this simple: split on whitespace, lowercase tokens,
         ignore punctuation if needed.
         """
-        index = {}
+        index = {}  # word -> list of filenames that contain it (used as BM25 document frequency)
+        total_length = 0  # running total of word counts, used to compute the corpus average length
+
         for filename, text in documents:
-            words = text.lower().split()
-            for word in words:
-                word = word.strip(".,!?;:()[]\"'")
-                if not word:
+            words = text.lower().split()  # lowercase the doc and split on whitespace into raw tokens
+            cleaned_words = []  # will hold the punctuation-stripped tokens for this document
+
+            for word in set(words):
+                word = word.strip(".,!?;:()[]\"'")  # strip surrounding punctuation from the token
+                if not word:  # skip tokens that were pure punctuation (now empty)
                     continue
-                if word not in index:
-                    index[word] = []
-                if filename not in index[word]:
-                    index[word].append(filename)
+                cleaned_words.append(word)  # keep the cleaned token for length counting
+
+                index.setdefault(word, []).append(filename)
+
+            total_length += len(cleaned_words)  # add this document's word count to the running total
+
+        # average document length across the corpus, used by BM25's length-normalization term
+        self.avg_doc_length = total_length / len(documents) if documents else 0
+
         return index
 
     # -----------------------------------------------------------
     # Scoring and Retrieval (Phase 1)
     # -----------------------------------------------------------
 
-    def score_document(self, query, text):
+    def score_document(self, query, text, k1=1.5, b=0.75):
         """
-        TODO (Phase 1):
-        Return a simple relevance score for how well the text matches the query.
+        Return a BM25 relevance score for how well the text matches the query.
 
-        Suggested baseline:
-        - Convert query into lowercase words
-        - Count how many appear in the text
-        - Return the count as the score
+        k1 controls how quickly extra occurrences of a term stop adding value.
+        b controls how much document length is penalized (0 = no penalty, 1 = full).
         """
-        # TODO: implement scoring
-        return 0
+        # lowercase and strip punctuation from the query the same way build_index cleaned documents
+        query_words = [w.strip(".,!?;:()[]\"'") for w in query.lower().split()]
+        query_words = [w for w in query_words if w]  # drop any tokens that became empty
+
+        # do the same cleanup to the candidate document's text
+        words = [w.strip(".,!?;:()[]\"'") for w in text.lower().split()]
+        words = [w for w in words if w]
+
+        doc_length = len(words) or 1  # this document's length in words; avoid dividing by zero below
+        N = len(self.documents)  # total number of documents in the corpus
+        avgdl = self.avg_doc_length or 1  # corpus average document length; avoid dividing by zero
+
+        score = 0.0
+        for term in query_words:
+            term_freq = words.count(term)  # how many times this query term appears in the document
+            if term_freq == 0:
+                continue  # term doesn't appear here, so it contributes nothing to the score
+
+            df = len(self.index.get(term, []))  # number of documents that contain this term at all
+            # IDF: rarer terms across the corpus count for more than common ones
+            idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
+
+            numerator = term_freq * (k1 + 1)  # raw term frequency, boosted by (k1 + 1)
+            # denominator saturates term frequency and normalizes for document length vs. the average
+            denominator = term_freq + k1 * (1 - b + b * (doc_length / avgdl))
+
+            score += idf * (numerator / denominator)  # add this term's contribution to the total score
+
+        return score
 
     def retrieve(self, query, top_k=3):
         """
-        TODO (Phase 1):
         Use the index and scoring function to select top_k relevant document snippets.
 
         Return a list of (filename, text) sorted by score descending.
         """
-        results = []
-        # TODO: implement retrieval logic
-        return results[:top_k]
+        # score every document in the corpus against the query
+        scored = [(self.score_document(query, text), filename, text) for filename, text in self.documents]
+
+        scored.sort(key=lambda item: item[0], reverse=True)  # highest score first
+
+        # drop documents with a zero score (no query terms matched) and strip the score from the tuple
+        results = [(filename, text) for score, filename, text in scored if score > 0]
+
+        return results[:top_k]  # return only the top_k most relevant documents
 
     # -----------------------------------------------------------
     # Answering Modes
