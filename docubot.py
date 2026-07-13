@@ -192,7 +192,7 @@ class DocuBot:
         scored = [(self.score_document(query, text), filename, text) for filename, text in self.chunks]
 
         scored.sort(key=lambda item: item[0], reverse=True)  # highest score first
-        print("max score:", scored[0][0] if scored else 0)  # debug: print the highest score for this query
+        # print("max score:", scored[0][0] if scored else 0)  # debug: print the highest score for this query
         
         # drop chunks that don't clear the relevance bar and strip the score from the tuple
         results = [(filename, text) for score, filename, text in scored if score > min_score]
