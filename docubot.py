@@ -177,9 +177,14 @@ class DocuBot:
 
         return score
 
-    def retrieve(self, query, top_k=3):
+    def retrieve(self, query, top_k=3, min_score=2.3):
         """
         Use the index and scoring function to select top_k relevant section chunks.
+
+        min_score: chunks scoring at or below this are treated as noise (e.g. a single
+        stray word match) rather than genuine relevance, and are excluded. Tune this
+        against your own docs/queries — raw BM25 scores aren't bounded or comparable
+        across corpora.
 
         Return a list of (filename, text) sorted by score descending.
         """
@@ -187,10 +192,11 @@ class DocuBot:
         scored = [(self.score_document(query, text), filename, text) for filename, text in self.chunks]
 
         scored.sort(key=lambda item: item[0], reverse=True)  # highest score first
-
-        # drop documents with a zero score (no query terms matched) and strip the score from the tuple
-        results = [(filename, text) for score, filename, text in scored if score > 0]
-
+        print("max score:", scored[0][0] if scored else 0)  # debug: print the highest score for this query
+        
+        # drop chunks that don't clear the relevance bar and strip the score from the tuple
+        results = [(filename, text) for score, filename, text in scored if score > min_score]
+        
         return results[:top_k]  # return only the top_k most relevant documents
 
     # -----------------------------------------------------------
