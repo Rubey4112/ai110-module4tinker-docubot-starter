@@ -9,6 +9,7 @@ Core DocuBot class responsible for:
 
 import os
 import glob
+import math  # needed for the logarithm in the BM25 IDF calculation
 
 class DocuBot:
     def __init__(self, docs_folder="docs", llm_client=None):
@@ -50,7 +51,7 @@ class DocuBot:
 
     def build_index(self, documents):
         """
-        TODO (Phase 1):
+        (Phase 1):
         Build a tiny inverted index mapping lowercase words to the documents
         they appear in.
 
@@ -64,7 +65,16 @@ class DocuBot:
         ignore punctuation if needed.
         """
         index = {}
-        # TODO: implement simple indexing
+        for filename, text in documents:
+            words = text.lower().split()
+            for word in words:
+                word = word.strip(".,!?;:()[]\"'")
+                if not word:
+                    continue
+                if word not in index:
+                    index[word] = []
+                if filename not in index[word]:
+                    index[word].append(filename)
         return index
 
     # -----------------------------------------------------------
