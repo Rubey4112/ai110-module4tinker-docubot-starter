@@ -17,7 +17,7 @@ from google import genai
 
 # Central place to update the model name if needed.
 # You can swap this for a different Gemini model in the future.
-GEMINI_MODEL_NAME = "gemma-3-27b-it"
+GEMINI_MODEL_NAME = "gemini-3.1-flash-lite"
 
 
 class GeminiClient:
@@ -49,6 +49,10 @@ class GeminiClient:
         # We ignore all_text and send a generic prompt instead
         prompt = f"""
     You are a documentation assistant. 
+
+    Project documentation:
+    {all_text}
+    
     Answer this developer question: {query}
     """
         try:
